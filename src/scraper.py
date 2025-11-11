@@ -1,55 +1,67 @@
 import requests
 from bs4 import BeautifulSoup
-from transformers import pipeline  # <-- 1. Importamos la 'pipeline' de Hugging Face
+from transformers import pipeline
 
-# --- CONFIGURACIÓN DEL MODELO DE IA ---
-# 2. Cargamos un modelo de análisis de sentimiento
-# "pipeline" es una forma fácil de usar un modelo complejo.
-# Elegimos un modelo que ya está entrenado para español (aunque las citas estén en inglés,
-# este modelo es multilingüe y nos servirá para el proyecto real).
-print("Cargando modelo de IA (esto puede tardar la primera vez)...")
-sentiment_pipeline = pipeline(
-    "sentiment-analysis", 
-    model="cardiffnlp/twitter-xlm-roberta-base-sentiment"
-)
-print("¡Modelo cargado!")
-# -------------------------------------
+# --- ¡CAMBIO IMPORTANTE! ---
+# 1. Cargamos el modelo de IA UNA SOLA VEZ, cuando el programa se inicia.
+# Esto es crucial para la velocidad. No queremos cargarlo con cada "pedido".
+print("Cargando modelo de IA (esto solo pasa una vez al iniciar)...")
+try:
+    sentiment_pipeline = pipeline(
+        "sentiment-analysis", 
+        model="cardiffnlp/twitter-xlm-roberta-base-sentiment"
+    )
+    print("¡Modelo de IA cargado con éxito!")
+except Exception as e:
+    print(f"Error cargando el modelo de IA: {e}")
+    sentiment_pipeline = None
 
-
-# 1. URL
-URL_EJEMPLO = "https://quotes.toscrape.com/"
-
-# 2. Petición
-print(f"Haciendo petición a: {URL_EJEMPLO}")
-response = requests.get(URL_EJEMPLO)
-
-# 3. Verificación
-if response.status_code == 200:
-    print("Petición exitosa (Código 200).")
+# 2. Creamos la función principal que usará nuestra API
+def analizar_url(url: str):
+    """
+    Esta función recibe una URL, la scrapea, analiza el sentimiento
+    y devuelve una lista de resultados.
+    """
     
-    # 4. Creamos la "sopa"
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # 5. Buscamos los elementos
-    print("\n--- CITAS Y ANÁLISIS DE SENTIMIENTO ---")
-    citas_encontradas = soup.find_all('span', class_='text')
-    
-    # 6. Recorremos los resultados, los analizamos y los imprimimos
-    for cita in citas_encontradas:
-        texto_cita = cita.text
+    if sentiment_pipeline is None:
+        return {"error": "El modelo de IA no está disponible."}
         
-        # --- ¡Aquí usamos la IA! ---
-        # 7. Pasamos el texto de la cita a nuestro modelo
-        resultado_sentimiento = sentiment_pipeline(texto_cita)[0]
-        
-        # 8. Imprimimos el resultado de forma bonita
-        etiqueta = resultado_sentimiento['label']
-        confianza = resultado_sentimiento['score'] * 100  # Convertir a porcentaje
-        
-        print(f"\nCITA: {texto_cita}")
-        print(f"SENTIMIENTO: {etiqueta} (Confianza: {confianza:.2f}%)")
+    print(f"Iniciando análisis para: {url}")
     
-    print("\n--- FIN DEL ANÁLISIS ---\n")
+    # --- LÓGICA DEL SCRAPER (Fase 2) ---
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            return {"error": f"Error en la petición. Código: {response.status_code}"}
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        citas_encontradas = soup.find_all('span', class_='text')
+        
+        if not citas_encontradas:
+            return {"error": "No se encontraron citas ('span', class_='text') en la URL."}
 
-else:
-    print(f"Error en la petición. Código: {response.status_code}")
+        # --- LÓGICA DE IA (Fase 3) ---
+        resultados = []
+        for cita in citas_encontradas:
+            texto_cita = cita.text
+            
+            # Analizamos el sentimiento
+            resultado_sentimiento = sentiment_pipeline(texto_cita)[0]
+            
+            # Guardamos un diccionario limpio
+            resultados.append({
+                "texto": texto_cita,
+                "sentimiento": resultado_sentimiento['label'],
+                "confianza": resultado_sentimiento['score']
+            })
+        
+        print(f"Análisis completado. Encontradas {len(resultados)} citas.")
+        return resultados
+
+    except Exception as e:
+        print(f"Ha ocurrido un error durante el scraping o análisis: {e}")
+        return {"error": f"Ha ocurrido un error interno: {e}"}
+
+# --- FIN DE LOS CAMBIOS ---
+# Ya no hay código "suelto". Todo está dentro de una función
+# o es parte de la configuración inicial.
